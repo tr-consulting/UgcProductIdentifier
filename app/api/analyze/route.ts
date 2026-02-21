@@ -16,6 +16,44 @@ function cleanJsonText(value: string) {
   return trimmed;
 }
 
+async function fetchSerpTopLinks(query: string) {
+  const apiKey = process.env.SERPAPI_KEY;
+  if (!apiKey || !query.trim()) {
+    return [];
+  }
+
+  const url = new URL("https://serpapi.com/search.json");
+  url.searchParams.set("engine", "google_shopping");
+  url.searchParams.set("q", query);
+  url.searchParams.set("hl", "en");
+  url.searchParams.set("gl", "us");
+  url.searchParams.set("api_key", apiKey);
+
+  try {
+    const response = await fetch(url.toString(), {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const data = await response.json();
+    const shopping = Array.isArray(data?.shopping_results) ? data.shopping_results : [];
+    const links = shopping
+      .map((item: { link?: string }) => item?.link)
+      .filter((value: unknown): value is string => typeof value === "string" && value.startsWith("http"));
+
+    return Array.from(new Set(links)).slice(0, 3);
+  } catch {
+    return [];
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as RequestBody;
@@ -88,8 +126,18 @@ export async function POST(request: Request) {
 
     const parsed = JSON.parse(cleanJsonText(content)) as AnalyzeApiResponse;
     const safeProducts = Array.isArray(parsed.products) ? parsed.products : [];
+    const productsWithLinks = await Promise.all(
+      safeProducts.map(async (product) => {
+        const links = await fetchSerpTopLinks(product.searchQuery || product.name || "");
+        return {
+          ...product,
+          buyLinks: links,
+          buyUrl: product.buyUrl || links[0] || "",
+        };
+      }),
+    );
 
-    return NextResponse.json({ products: safeProducts });
+    return NextResponse.json({ products: productsWithLinks });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });

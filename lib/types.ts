@@ -16,6 +16,7 @@ export type ProductResult = {
   name: string;
   description: string;
   buyUrl: string;
+  buyLinks?: string[];
   searchQuery?: string;
   imageDataUrl: string;
   purchased: boolean;
@@ -46,6 +47,7 @@ export type AnalyzeApiResponse = {
     name: string;
     description: string;
     buyUrl: string;
+    buyLinks?: string[];
     searchQuery?: string;
   }>;
 };

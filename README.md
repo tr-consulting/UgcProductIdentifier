@@ -5,13 +5,15 @@ Webapp för att:
 - pausa och markera produktområden
 - skapa stillbilder från markeringen
 - analysera bilder via Azure OpenAI
+- hämta topp-3 köplänkar via sekundär provider (SerpAPI, valfritt)
 - generera en HTML-rapport med namn, bild, beskrivning, köplänk, köpt-checkbox och kommentar
-- spara hela analysen (video + frames + produktdata) i Supabase
+- spara analysen (stillbilder + produktdata + rapport-html) i Supabase
 
 ## Stack
 - Next.js (App Router)
 - Supabase (Postgres + Storage)
 - Azure OpenAI via `/api/analyze`
+- SerpAPI (valfri) via `/api/analyze`
 - Deploy: GitHub -> Vercel
 
 ## Lokal start
@@ -40,6 +42,8 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 Om du får `row-level security policy` vid sparning:
 - kör hela `/supabase/schema.sql` igen i SQL Editor (den innehåller nödvändiga MVP-policies för tabeller + storage buckets).
 
+Notera: videon sparas inte i Supabase i denna version, endast stillbilder + rapportdata.
+
 ## 2) Azure OpenAI setup (du behöver göra detta)
 
 I appen fyller du i:
@@ -48,6 +52,9 @@ I appen fyller du i:
 - API key
 
 Notera: i denna MVP skickas nyckeln från klienten till API-route för snabb start. Nästa steg är att flytta nyckelhantering till server-side per användare med kryptering.
+
+Valfritt för bättre köpresultat:
+- sätt `SERPAPI_KEY` i Vercel (Project Settings -> Environment Variables) för topp-3 länkförslag per produkt.
 
 ## 3) Vercel deploy (du behöver göra detta)
 

@@ -6,6 +6,7 @@ create table if not exists product_analyzers (
   video_name text not null,
   video_path text not null,
   thumbnail_path text,
+  report_html text,
   created_at timestamptz not null default now()
 );
 
@@ -24,10 +25,14 @@ create table if not exists detected_products (
   name text not null,
   description text,
   buy_url text,
+  buy_links jsonb not null default '[]'::jsonb,
   is_purchased boolean not null default false,
   user_comment text,
   created_at timestamptz not null default now()
 );
+
+alter table product_analyzers add column if not exists report_html text;
+alter table detected_products add column if not exists buy_links jsonb not null default '[]'::jsonb;
 
 create index if not exists analyzer_frames_analyzer_id_idx on analyzer_frames(analyzer_id);
 create index if not exists detected_products_analyzer_frame_id_idx on detected_products(analyzer_frame_id);

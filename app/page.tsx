@@ -99,7 +99,6 @@ export default function HomePage() {
   const overlayRef = useRef<HTMLDivElement | null>(null);
 
   const [azureSettings, setAzureSettings] = useState<AzureSettings>(defaultSettings);
-  const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoUrl, setVideoUrl] = useState<string>("");
   const [analyzer, setAnalyzer] = useState<Analyzer | null>(null);
   const [draftBox, setDraftBox] = useState<DraftBox | null>(null);
@@ -190,7 +189,6 @@ export default function HomePage() {
     }
 
     const nextVideoUrl = URL.createObjectURL(file);
-    setVideoFile(file);
     setVideoUrl(nextVideoUrl);
     setDraftBox(null);
     setSelectedBox(null);
@@ -390,6 +388,7 @@ export default function HomePage() {
           name: item.name || "Okänd produkt",
           description: item.description || "",
           buyUrl: item.buyUrl || "",
+          buyLinks: item.buyLinks || [],
           searchQuery: item.searchQuery || "",
           imageDataUrl: frame.imageDataUrl,
           purchased: false,
@@ -464,8 +463,8 @@ export default function HomePage() {
   }
 
   async function saveToSupabase() {
-    if (!analyzer || !videoFile) {
-      setStatus("Ingen video att spara.");
+    if (!analyzer) {
+      setStatus("Ingen analys att spara.");
       return;
     }
 
@@ -480,21 +479,13 @@ export default function HomePage() {
     try {
       const supabase = getSupabaseClient();
       const analyzerId = analyzer.id;
-      const videoPath = `${analyzerId}/video-${Date.now()}-${videoFile.name}`;
-
-      const videoUpload = await supabase.storage
-        .from("product-videos")
-        .upload(videoPath, videoFile, { upsert: true });
-
-      if (videoUpload.error) {
-        throw videoUpload.error;
-      }
 
       const { error: analyzerError } = await supabase.from("product_analyzers").upsert({
         id: analyzerId,
         title: analyzer.title,
         video_name: analyzer.videoName,
-        video_path: videoPath,
+        video_path: "__not_saved__",
+        report_html: reportHtml(analyzer.title, allProducts),
         created_at: analyzer.createdAt,
       });
 
@@ -533,6 +524,7 @@ export default function HomePage() {
             name: product.name,
             description: product.description,
             buy_url: product.buyUrl,
+            buy_links: product.buyLinks || [],
             is_purchased: product.purchased,
             user_comment: product.comment,
           });
@@ -552,7 +544,7 @@ export default function HomePage() {
         );
       } else if (message.toLowerCase().includes("maximum allowed size")) {
         setStatus(
-          "Kunde inte spara: filen är större än bucket-gränsen. Höj maxstorlek i bucket eller använd mindre video.",
+          "Kunde inte spara: stillbilden är större än bucket-gränsen. Höj maxstorlek i product-frames bucket.",
         );
       } else {
         setStatus(`Kunde inte spara: ${message}`);
@@ -658,7 +650,7 @@ export default function HomePage() {
         <section className="panel videoPanel">
           <div className="videoStage">
             {videoUrl ? (
-              <>
+              <div className="videoCanvas">
                 <video
                   ref={videoRef}
                   src={videoUrl}
@@ -685,7 +677,7 @@ export default function HomePage() {
                     />
                   )}
                 </div>
-              </>
+              </div>
             ) : (
               <div className="videoPlaceholder">Ingen video vald ännu.</div>
             )}
@@ -791,6 +783,21 @@ export default function HomePage() {
                   value={product.buyUrl}
                   onChange={(event) => updateProduct(product.id, { buyUrl: event.target.value })}
                 />
+                {!!product.buyLinks?.length && (
+                  <div className="suggestLinks">
+                    {product.buyLinks.slice(0, 3).map((link) => (
+                      <button
+                        key={link}
+                        type="button"
+                        className="suggestLinkBtn"
+                        onClick={() => updateProduct(product.id, { buyUrl: link })}
+                        title={link}
+                      >
+                        Förslag
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="reportCell checkCell">
                 <input
