@@ -31,6 +31,13 @@ type DraftBox = {
   endY: number;
 };
 
+type VideoGeometry = {
+  displayX: number;
+  displayY: number;
+  displayWidth: number;
+  displayHeight: number;
+};
+
 function formatSeconds(value: number) {
   const min = Math.floor(value / 60);
   const sec = Math.floor(value % 60)
@@ -83,6 +90,10 @@ function boxToStyle(box: DraftBox | null) {
   };
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
 export default function HomePage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
@@ -111,6 +122,40 @@ export default function HomePage() {
 
   const visibleBox = isDrawing ? draftBox : selectedBox;
   const visibleStyle = boxToStyle(visibleBox);
+
+  function getVideoGeometry(): VideoGeometry | null {
+    const video = videoRef.current;
+    const overlay = overlayRef.current;
+    if (!video || !overlay || !video.videoWidth || !video.videoHeight) {
+      return null;
+    }
+
+    const containerWidth = overlay.clientWidth;
+    const containerHeight = overlay.clientHeight;
+    if (!containerWidth || !containerHeight) {
+      return null;
+    }
+
+    const videoAspect = video.videoWidth / video.videoHeight;
+    const containerAspect = containerWidth / containerHeight;
+
+    let displayWidth = containerWidth;
+    let displayHeight = containerHeight;
+    let displayX = 0;
+    let displayY = 0;
+
+    if (videoAspect > containerAspect) {
+      displayWidth = containerWidth;
+      displayHeight = containerWidth / videoAspect;
+      displayY = (containerHeight - displayHeight) / 2;
+    } else {
+      displayHeight = containerHeight;
+      displayWidth = containerHeight * videoAspect;
+      displayX = (containerWidth - displayWidth) / 2;
+    }
+
+    return { displayX, displayY, displayWidth, displayHeight };
+  }
 
   useEffect(() => {
     try {
@@ -161,21 +206,26 @@ export default function HomePage() {
   }
 
   function toNormalizedBox(boxDraft: DraftBox) {
-    if (!overlayRef.current) {
+    const geometry = getVideoGeometry();
+    if (!geometry) {
       return null;
     }
 
-    const bounds = overlayRef.current.getBoundingClientRect();
     const style = boxToStyle(boxDraft);
     if (!style) {
       return null;
     }
 
+    const x = (style.left - geometry.displayX) / geometry.displayWidth;
+    const y = (style.top - geometry.displayY) / geometry.displayHeight;
+    const width = style.width / geometry.displayWidth;
+    const height = style.height / geometry.displayHeight;
+
     return {
-      x: style.left / bounds.width,
-      y: style.top / bounds.height,
-      width: style.width / bounds.width,
-      height: style.height / bounds.height,
+      x: clamp(x, 0, 1),
+      y: clamp(y, 0, 1),
+      width: clamp(width, 0, 1),
+      height: clamp(height, 0, 1),
     };
   }
 
@@ -521,8 +571,15 @@ export default function HomePage() {
     event.stopPropagation();
 
     const rect = overlayRef.current.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
+    const geometry = getVideoGeometry();
+    if (!geometry) {
+      return;
+    }
+
+    const rawX = event.clientX - rect.left;
+    const rawY = event.clientY - rect.top;
+    const x = clamp(rawX, geometry.displayX, geometry.displayX + geometry.displayWidth);
+    const y = clamp(rawY, geometry.displayY, geometry.displayY + geometry.displayHeight);
 
     setIsDrawing(true);
     setDraftBox({ startX: x, startY: y, endX: x, endY: y });
@@ -537,8 +594,15 @@ export default function HomePage() {
     event.stopPropagation();
 
     const rect = overlayRef.current.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
+    const geometry = getVideoGeometry();
+    if (!geometry) {
+      return;
+    }
+
+    const rawX = event.clientX - rect.left;
+    const rawY = event.clientY - rect.top;
+    const x = clamp(rawX, geometry.displayX, geometry.displayX + geometry.displayWidth);
+    const y = clamp(rawY, geometry.displayY, geometry.displayY + geometry.displayHeight);
 
     setDraftBox((prev) => (prev ? { ...prev, endX: x, endY: y } : prev));
   }
@@ -552,8 +616,15 @@ export default function HomePage() {
     event.stopPropagation();
 
     const rect = overlayRef.current.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
+    const geometry = getVideoGeometry();
+    if (!geometry) {
+      return;
+    }
+
+    const rawX = event.clientX - rect.left;
+    const rawY = event.clientY - rect.top;
+    const x = clamp(rawX, geometry.displayX, geometry.displayX + geometry.displayWidth);
+    const y = clamp(rawY, geometry.displayY, geometry.displayY + geometry.displayHeight);
 
     const nextBox = draftBox ? { ...draftBox, endX: x, endY: y } : null;
     const style = boxToStyle(nextBox);
