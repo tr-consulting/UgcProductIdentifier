@@ -804,20 +804,15 @@ export default function HomePage() {
                 />
               </div>
               <div className="reportCell">
-                <input
-                  type="text"
-                  placeholder={product.searchQuery || "Lägg köplänk"}
-                  value={product.buyUrl}
-                  onChange={(event) => updateProduct(product.id, { buyUrl: event.target.value })}
-                />
                 {!!product.buyLinks?.length && (
                   <div className="suggestLinks">
                     {product.buyLinks.slice(0, 3).map((link, index) => (
-                      <button
+                      <a
                         key={link}
-                        type="button"
                         className="suggestLinkBtn"
-                        onClick={() => updateProduct(product.id, { buyUrl: link })}
+                        href={link}
+                        target="_blank"
+                        rel="noopener noreferrer"
                         title={link}
                       >
                         {(() => {
@@ -827,9 +822,12 @@ export default function HomePage() {
                             return `${index + 1}. Förslag`;
                           }
                         })()}
-                      </button>
+                      </a>
                     ))}
                   </div>
+                )}
+                {!product.buyLinks?.length && (
+                  <span className="noLinks">Inga förslag ännu</span>
                 )}
               </div>
               <div className="reportCell checkCell">
