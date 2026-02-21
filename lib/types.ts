@@ -16,6 +16,7 @@ export type ProductResult = {
   name: string;
   description: string;
   buyUrl: string;
+  searchQuery?: string;
   imageDataUrl: string;
   purchased: boolean;
   comment: string;
@@ -26,6 +27,7 @@ export type CapturedFrame = {
   timestamp: number;
   bbox: BoundingBox;
   imageDataUrl: string;
+  analysisImageDataUrl?: string;
   products: ProductResult[];
   analyzed: boolean;
 };
@@ -44,5 +46,6 @@ export type AnalyzeApiResponse = {
     name: string;
     description: string;
     buyUrl: string;
+    searchQuery?: string;
   }>;
 };

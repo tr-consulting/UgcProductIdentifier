@@ -20,6 +20,9 @@ const defaultSettings: AzureSettings = {
 const AZURE_SETTINGS_STORAGE_KEY = "product-analyzer.azure-settings";
 const MAX_CAPTURE_DIMENSION = 900;
 const CAPTURE_JPEG_QUALITY = 0.72;
+const ANALYSIS_MAX_DIMENSION = 1400;
+const ANALYSIS_JPEG_QUALITY = 0.9;
+const ANALYSIS_PADDING_FACTOR = 0.35;
 
 type DraftBox = {
   startX: number;
@@ -210,6 +213,15 @@ export default function HomePage() {
     const sw = Math.max(1, Math.floor(box.width * video.videoWidth));
     const sh = Math.max(1, Math.floor(box.height * video.videoHeight));
 
+    const contextPadX = Math.floor(sw * ANALYSIS_PADDING_FACTOR);
+    const contextPadY = Math.floor(sh * ANALYSIS_PADDING_FACTOR);
+    const contextSx = Math.max(0, sx - contextPadX);
+    const contextSy = Math.max(0, sy - contextPadY);
+    const contextEx = Math.min(video.videoWidth, sx + sw + contextPadX);
+    const contextEy = Math.min(video.videoHeight, sy + sh + contextPadY);
+    const contextSw = Math.max(1, contextEx - contextSx);
+    const contextSh = Math.max(1, contextEy - contextSy);
+
     const scale = Math.min(1, MAX_CAPTURE_DIMENSION / Math.max(sw, sh));
     const targetWidth = Math.max(1, Math.floor(sw * scale));
     const targetHeight = Math.max(1, Math.floor(sh * scale));
@@ -226,11 +238,38 @@ export default function HomePage() {
     context.drawImage(video, sx, sy, sw, sh, 0, 0, targetWidth, targetHeight);
     const imageDataUrl = canvas.toDataURL("image/jpeg", CAPTURE_JPEG_QUALITY);
 
+    const analysisCanvas = document.createElement("canvas");
+    const analysisScale = Math.min(1, ANALYSIS_MAX_DIMENSION / Math.max(contextSw, contextSh));
+    const analysisWidth = Math.max(1, Math.floor(contextSw * analysisScale));
+    const analysisHeight = Math.max(1, Math.floor(contextSh * analysisScale));
+    analysisCanvas.width = analysisWidth;
+    analysisCanvas.height = analysisHeight;
+
+    const analysisContext = analysisCanvas.getContext("2d");
+    if (!analysisContext) {
+      setStatus("Kunde inte skapa analysbild.");
+      return;
+    }
+
+    analysisContext.drawImage(
+      video,
+      contextSx,
+      contextSy,
+      contextSw,
+      contextSh,
+      0,
+      0,
+      analysisWidth,
+      analysisHeight,
+    );
+    const analysisImageDataUrl = analysisCanvas.toDataURL("image/jpeg", ANALYSIS_JPEG_QUALITY);
+
     const frame: CapturedFrame = {
       id: crypto.randomUUID(),
       timestamp: video.currentTime,
       bbox: box,
       imageDataUrl,
+      analysisImageDataUrl,
       products: [],
       analyzed: false,
     };
@@ -286,6 +325,7 @@ export default function HomePage() {
           },
           body: JSON.stringify({
             imageDataUrl: frame.imageDataUrl,
+            analysisImageDataUrl: frame.analysisImageDataUrl,
             settings: azureSettings,
           }),
         });
@@ -300,6 +340,7 @@ export default function HomePage() {
           name: item.name || "Okänd produkt",
           description: item.description || "",
           buyUrl: item.buyUrl || "",
+          searchQuery: item.searchQuery || "",
           imageDataUrl: frame.imageDataUrl,
           purchased: false,
           comment: "",
@@ -636,43 +677,51 @@ export default function HomePage() {
 
       <section className="panel">
         <h2>Rapport ({allProducts.length} produkter)</h2>
-        <div className="productsCompact">
+        <div className="reportTableWrap">
+          <div className="reportHeader">
+            <span>Bild</span>
+            <span>Namn</span>
+            <span>Beskrivning</span>
+            <span>Köplänk</span>
+            <span>Köpt</span>
+            <span>Kommentar</span>
+          </div>
           {allProducts.map((product) => (
-            <article key={product.id} className="productCard">
-              <Image
-                src={product.imageDataUrl}
-                alt={product.name}
-                width={220}
-                height={150}
-                className="previewImage"
-                unoptimized
-              />
-              <label>
-                Namn
+            <div key={product.id} className="reportRow">
+              <div className="reportCell imageCell">
+                <Image
+                  src={product.imageDataUrl}
+                  alt={product.name}
+                  width={88}
+                  height={88}
+                  className="reportThumb"
+                  unoptimized
+                />
+              </div>
+              <div className="reportCell">
                 <input
                   type="text"
                   value={product.name}
                   onChange={(event) => updateProduct(product.id, { name: event.target.value })}
                 />
-              </label>
-              <label>
-                Beskrivning
+              </div>
+              <div className="reportCell">
                 <textarea
                   value={product.description}
                   onChange={(event) =>
                     updateProduct(product.id, { description: event.target.value })
                   }
                 />
-              </label>
-              <label>
-                Köplänk
+              </div>
+              <div className="reportCell">
                 <input
                   type="text"
+                  placeholder={product.searchQuery || "Lägg köplänk"}
                   value={product.buyUrl}
                   onChange={(event) => updateProduct(product.id, { buyUrl: event.target.value })}
                 />
-              </label>
-              <label className="check">
+              </div>
+              <div className="reportCell checkCell">
                 <input
                   type="checkbox"
                   checked={product.purchased}
@@ -680,17 +729,16 @@ export default function HomePage() {
                     updateProduct(product.id, { purchased: event.target.checked })
                   }
                 />
-                Köpt
-              </label>
-              <label>
-                Egen kommentar
+              </div>
+              <div className="reportCell">
                 <textarea
                   value={product.comment}
                   onChange={(event) => updateProduct(product.id, { comment: event.target.value })}
                 />
-              </label>
-            </article>
+              </div>
+            </div>
           ))}
+          {!allProducts.length && <p className="emptyReport">Inga produkter ännu.</p>}
         </div>
       </section>
 

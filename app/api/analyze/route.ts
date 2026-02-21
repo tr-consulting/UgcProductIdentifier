@@ -4,6 +4,7 @@ import type { AnalyzeApiResponse, AzureSettings } from "@/lib/types";
 
 type RequestBody = {
   imageDataUrl?: string;
+  analysisImageDataUrl?: string;
   settings?: AzureSettings;
 };
 
@@ -31,6 +32,8 @@ export async function POST(request: Request) {
 
     const url = `${endpoint.replace(/\/$/, "")}/openai/deployments/${deployment}/chat/completions?api-version=2024-08-01-preview`;
 
+    const analysisImage = body.analysisImageDataUrl ?? body.imageDataUrl;
+
     const azureResponse = await fetch(url, {
       method: "POST",
       headers: {
@@ -42,14 +45,20 @@ export async function POST(request: Request) {
           {
             role: "system",
             content:
-              "You extract products shown in screenshots. Return only JSON with shape { products: [{ name, description, buyUrl }] }. If unknown buyUrl, use empty string.",
+              "You identify consumer products from screenshots. Be conservative and avoid guessing exact models when evidence is weak. Return only JSON with shape { products: [{ name, description, buyUrl, searchQuery }] }. searchQuery should be a short shopping query (brand + product type + model if visible). If buyUrl is uncertain, use empty string.",
           },
           {
             role: "user",
             content: [
               {
                 type: "text",
-                text: "Identify visible products in this screenshot/crop and return 0-5 products as JSON only.",
+                text: "First image is a context-aware crop around the marked product. Second image is the exact tight crop. Identify visible products and output 0-5 items as JSON only.",
+              },
+              {
+                type: "image_url",
+                image_url: {
+                  url: analysisImage,
+                },
               },
               {
                 type: "image_url",
