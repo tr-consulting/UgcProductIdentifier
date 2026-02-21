@@ -38,6 +38,12 @@ type VideoGeometry = {
   displayHeight: number;
 };
 
+type SavedAnalyzerSummary = {
+  id: string;
+  title: string;
+  createdAt: string;
+};
+
 function formatSeconds(value: number) {
   const min = Math.floor(value / 60);
   const sec = Math.floor(value % 60)
@@ -113,6 +119,8 @@ export default function HomePage() {
   const [status, setStatus] = useState<string>("");
   const [currentTimestamp, setCurrentTimestamp] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [savedAnalyzers, setSavedAnalyzers] = useState<SavedAnalyzerSummary[]>([]);
+  const [isLoadingSaved, setIsLoadingSaved] = useState(false);
 
   const allProducts = useMemo(
     () => analyzer?.frames.flatMap((frame) => frame.products) ?? [],
@@ -177,6 +185,154 @@ export default function HomePage() {
   useEffect(() => {
     localStorage.setItem(AZURE_SETTINGS_STORAGE_KEY, JSON.stringify(azureSettings));
   }, [azureSettings]);
+
+  useEffect(() => {
+    refreshSavedAnalyzers();
+  }, []);
+
+  async function refreshSavedAnalyzers() {
+    if (!hasSupabaseConfig()) {
+      return;
+    }
+
+    setIsLoadingSaved(true);
+
+    try {
+      const supabase = getSupabaseClient();
+      const { data, error } = await supabase
+        .from("product_analyzers")
+        .select("id,title,created_at")
+        .order("created_at", { ascending: false })
+        .limit(30);
+
+      if (error) {
+        throw error;
+      }
+
+      setSavedAnalyzers(
+        (data || []).map((item) => ({
+          id: item.id,
+          title: item.title || "Untitled",
+          createdAt: item.created_at || new Date().toISOString(),
+        })),
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Okänt fel";
+      setStatus(`Kunde inte hämta tidigare analyser: ${message}`);
+    } finally {
+      setIsLoadingSaved(false);
+    }
+  }
+
+  async function loadSavedAnalyzer(analyzerId: string) {
+    if (!hasSupabaseConfig()) {
+      setStatus("Supabase env saknas.");
+      return;
+    }
+
+    setIsLoading(true);
+    setStatus("Laddar sparad analys...");
+
+    try {
+      const supabase = getSupabaseClient();
+
+      const { data: analyzerRow, error: analyzerError } = await supabase
+        .from("product_analyzers")
+        .select("id,title,video_name,created_at")
+        .eq("id", analyzerId)
+        .single();
+
+      if (analyzerError) {
+        throw analyzerError;
+      }
+
+      const { data: frameRows, error: framesError } = await supabase
+        .from("analyzer_frames")
+        .select("id,timestamp_seconds,bbox,image_path")
+        .eq("analyzer_id", analyzerId)
+        .order("timestamp_seconds", { ascending: true });
+
+      if (framesError) {
+        throw framesError;
+      }
+
+      const frameIds = (frameRows || []).map((frame) => frame.id);
+
+      const productsByFrame = new Map<string, ProductResult[]>();
+      if (frameIds.length > 0) {
+        const { data: productRows, error: productsError } = await supabase
+          .from("detected_products")
+          .select("id,analyzer_frame_id,name,description,buy_url,buy_links,is_purchased,user_comment")
+          .in("analyzer_frame_id", frameIds);
+
+        if (productsError) {
+          throw productsError;
+        }
+
+        for (const row of productRows || []) {
+          const list = productsByFrame.get(row.analyzer_frame_id) || [];
+          list.push({
+            id: row.id,
+            name: row.name || "Okänd produkt",
+            description: row.description || "",
+            buyUrl: row.buy_url || "",
+            buyLinks: Array.isArray(row.buy_links) ? row.buy_links : [],
+            imageDataUrl: "",
+            purchased: Boolean(row.is_purchased),
+            comment: row.user_comment || "",
+          });
+          productsByFrame.set(row.analyzer_frame_id, list);
+        }
+      }
+
+      const frames: CapturedFrame[] = [];
+      for (const row of frameRows || []) {
+        const signed = await supabase.storage
+          .from("product-frames")
+          .createSignedUrl(row.image_path, 60 * 60 * 24);
+
+        const frameProducts = productsByFrame.get(row.id) || [];
+        const imageDataUrl = signed.data?.signedUrl || "";
+        frames.push({
+          id: row.id,
+          timestamp: Number(row.timestamp_seconds) || 0,
+          bbox: row.bbox,
+          imageDataUrl,
+          products: frameProducts.map((product) => ({ ...product, imageDataUrl })),
+          analyzed: frameProducts.length > 0,
+        });
+      }
+
+      setVideoUrl("");
+      setAnalyzer({
+        id: analyzerRow.id,
+        title: analyzerRow.title || "Sparad analys",
+        videoName: analyzerRow.video_name || "Sparad analys",
+        createdAt: analyzerRow.created_at || new Date().toISOString(),
+        frames,
+      });
+      setStatus(`Laddade ${frames.length} stillbilder från sparad analys.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Okänt fel";
+      setStatus(`Kunde inte ladda analys: ${message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  function removeFrame(frameId: string) {
+    setAnalyzer((prev) => {
+      if (!prev) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        frames: prev.frames.filter((frame) => frame.id !== frameId),
+      };
+    });
+    setStatus("Stillbild borttagen.");
+  }
 
   function onUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -563,6 +719,7 @@ export default function HomePage() {
       }
 
       setStatus("Sparat i Supabase.");
+      await refreshSavedAnalyzers();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Okänt fel";
       if (message.includes("row-level security policy")) {
@@ -757,9 +914,39 @@ export default function HomePage() {
                   <div>
                     <p>{formatSeconds(frame.timestamp)}</p>
                     <p>{frame.analyzed ? `${frame.products.length} produkter` : "Ej analyserad"}</p>
+                    <button
+                      type="button"
+                      className="thumbDelete"
+                      onClick={() => removeFrame(frame.id)}
+                    >
+                      Ta bort
+                    </button>
                   </div>
                 </article>
               ))}
+            </div>
+          </div>
+
+          <div className="savedSection">
+            <div className="savedHeader">
+              <h3>Tidigare analyser</h3>
+              <button type="button" onClick={refreshSavedAnalyzers} disabled={isLoadingSaved}>
+                {isLoadingSaved ? "Laddar..." : "Uppdatera"}
+              </button>
+            </div>
+            <div className="savedList">
+              {savedAnalyzers.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className="savedItem"
+                  onClick={() => loadSavedAnalyzer(item.id)}
+                >
+                  <strong>{item.title}</strong>
+                  <span>{new Date(item.createdAt).toLocaleString("sv-SE")}</span>
+                </button>
+              ))}
+              {!savedAnalyzers.length && <p className="noLinks">Inga sparade analyser hittades.</p>}
             </div>
           </div>
         </aside>

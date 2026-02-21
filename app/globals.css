@@ -227,6 +227,16 @@ textarea {
   color: var(--muted);
 }
 
+.thumbDelete {
+  margin-top: 0.35rem;
+  border-radius: 8px;
+  padding: 0.2rem 0.45rem;
+  font-size: 0.72rem;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
 .reportTableWrap {
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -325,6 +335,47 @@ textarea {
 .noLinks {
   font-size: 0.8rem;
   color: var(--muted);
+}
+
+.savedSection {
+  border-top: 1px solid var(--line);
+  padding-top: 0.65rem;
+}
+
+.savedHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.savedHeader h3 {
+  margin: 0;
+}
+
+.savedList {
+  margin-top: 0.45rem;
+  display: grid;
+  gap: 0.35rem;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.savedItem {
+  display: grid;
+  justify-items: start;
+  gap: 0.2rem;
+  text-align: left;
+  border-radius: 10px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1e3a8a;
+  padding: 0.4rem 0.5rem;
+}
+
+.savedItem span {
+  font-size: 0.74rem;
+  color: #1d4ed8;
 }
 
 .settingsBackdrop {
