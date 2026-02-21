@@ -37,6 +37,9 @@ NEXT_PUBLIC_SUPABASE_URL=...
 NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 ```
 
+Om du får `row-level security policy` vid sparning:
+- kör hela `/supabase/schema.sql` igen i SQL Editor (den innehåller nödvändiga MVP-policies för tabeller + storage buckets).
+
 ## 2) Azure OpenAI setup (du behöver göra detta)
 
 I appen fyller du i:

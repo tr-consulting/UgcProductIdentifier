@@ -91,6 +91,10 @@ export default function HomePage() {
   const [isDrawing, setIsDrawing] = useState(false);
   const [isDrawMode, setIsDrawMode] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [analyzeProgress, setAnalyzeProgress] = useState<{
+    current: number;
+    total: number;
+  } | null>(null);
   const [status, setStatus] = useState<string>("");
   const [currentTimestamp, setCurrentTimestamp] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -256,12 +260,17 @@ export default function HomePage() {
     }
 
     setIsLoading(true);
+    setAnalyzeProgress({ current: 0, total: framesToAnalyze.length });
     setStatus(`Analyserar ${framesToAnalyze.length} bilder...`);
 
     try {
       const updates: Record<string, ProductResult[]> = {};
 
-      for (const frame of framesToAnalyze) {
+      for (const [index, frame] of framesToAnalyze.entries()) {
+        const current = index + 1;
+        setAnalyzeProgress({ current, total: framesToAnalyze.length });
+        setStatus(`Analyserar bild ${current}/${framesToAnalyze.length}...`);
+
         const response = await fetch("/api/analyze", {
           method: "POST",
           headers: {
@@ -316,6 +325,7 @@ export default function HomePage() {
       setStatus(`Analys misslyckades: ${message}`);
     } finally {
       setIsLoading(false);
+      setAnalyzeProgress(null);
     }
   }
 
@@ -437,7 +447,13 @@ export default function HomePage() {
       setStatus("Sparat i Supabase.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Okänt fel";
-      setStatus(`Kunde inte spara: ${message}`);
+      if (message.includes("row-level security policy")) {
+        setStatus(
+          "Kunde inte spara: RLS-policy blockerar skrivning i Supabase. Kör SQL-fixen för policies i supabase/schema.sql.",
+        );
+      } else {
+        setStatus(`Kunde inte spara: ${message}`);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -552,7 +568,11 @@ export default function HomePage() {
           </div>
           <div className="videoMeta">
             <span>Tid: {formatSeconds(currentTimestamp)}</span>
-            <span>{status || "Redo"}</span>
+            <span>
+              {analyzeProgress
+                ? `Analyserar ${analyzeProgress.current}/${analyzeProgress.total}`
+                : status || "Redo"}
+            </span>
           </div>
         </section>
 
@@ -566,7 +586,9 @@ export default function HomePage() {
               Markera produkt
             </button>
             <button type="button" onClick={analyzeFrames} disabled={!analyzer || isLoading}>
-              {isLoading ? "Analyserar..." : "Analysera bilder"}
+              {analyzeProgress
+                ? `Analyserar ${analyzeProgress.current}/${analyzeProgress.total}`
+                : "Analysera bilder"}
             </button>
             <button type="button" onClick={saveToSupabase} disabled={!analyzer || isLoading}>
               Spara ProductAnalyzer

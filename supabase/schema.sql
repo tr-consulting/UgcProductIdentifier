@@ -31,3 +31,91 @@ create table if not exists detected_products (
 
 create index if not exists analyzer_frames_analyzer_id_idx on analyzer_frames(analyzer_id);
 create index if not exists detected_products_analyzer_frame_id_idx on detected_products(analyzer_frame_id);
+
+-- MVP policies: allow anon client writes/reads.
+-- Tighten these when you add authentication and per-user ownership.
+alter table product_analyzers enable row level security;
+alter table analyzer_frames enable row level security;
+alter table detected_products enable row level security;
+
+drop policy if exists "anon_full_product_analyzers" on product_analyzers;
+create policy "anon_full_product_analyzers"
+on product_analyzers
+for all
+to anon
+using (true)
+with check (true);
+
+drop policy if exists "anon_full_analyzer_frames" on analyzer_frames;
+create policy "anon_full_analyzer_frames"
+on analyzer_frames
+for all
+to anon
+using (true)
+with check (true);
+
+drop policy if exists "anon_full_detected_products" on detected_products;
+create policy "anon_full_detected_products"
+on detected_products
+for all
+to anon
+using (true)
+with check (true);
+
+drop policy if exists "anon_storage_video_select" on storage.objects;
+create policy "anon_storage_video_select"
+on storage.objects
+for select
+to anon
+using (bucket_id = 'product-videos');
+
+drop policy if exists "anon_storage_video_insert" on storage.objects;
+create policy "anon_storage_video_insert"
+on storage.objects
+for insert
+to anon
+with check (bucket_id = 'product-videos');
+
+drop policy if exists "anon_storage_video_update" on storage.objects;
+create policy "anon_storage_video_update"
+on storage.objects
+for update
+to anon
+using (bucket_id = 'product-videos')
+with check (bucket_id = 'product-videos');
+
+drop policy if exists "anon_storage_video_delete" on storage.objects;
+create policy "anon_storage_video_delete"
+on storage.objects
+for delete
+to anon
+using (bucket_id = 'product-videos');
+
+drop policy if exists "anon_storage_frames_select" on storage.objects;
+create policy "anon_storage_frames_select"
+on storage.objects
+for select
+to anon
+using (bucket_id = 'product-frames');
+
+drop policy if exists "anon_storage_frames_insert" on storage.objects;
+create policy "anon_storage_frames_insert"
+on storage.objects
+for insert
+to anon
+with check (bucket_id = 'product-frames');
+
+drop policy if exists "anon_storage_frames_update" on storage.objects;
+create policy "anon_storage_frames_update"
+on storage.objects
+for update
+to anon
+using (bucket_id = 'product-frames')
+with check (bucket_id = 'product-frames');
+
+drop policy if exists "anon_storage_frames_delete" on storage.objects;
+create policy "anon_storage_frames_delete"
+on storage.objects
+for delete
+to anon
+using (bucket_id = 'product-frames');
