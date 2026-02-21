@@ -18,6 +18,8 @@ const defaultSettings: AzureSettings = {
   apiKey: "",
 };
 const AZURE_SETTINGS_STORAGE_KEY = "product-analyzer.azure-settings";
+const MAX_CAPTURE_DIMENSION = 900;
+const CAPTURE_JPEG_QUALITY = 0.72;
 
 type DraftBox = {
   startX: number;
@@ -208,8 +210,12 @@ export default function HomePage() {
     const sw = Math.max(1, Math.floor(box.width * video.videoWidth));
     const sh = Math.max(1, Math.floor(box.height * video.videoHeight));
 
-    canvas.width = sw;
-    canvas.height = sh;
+    const scale = Math.min(1, MAX_CAPTURE_DIMENSION / Math.max(sw, sh));
+    const targetWidth = Math.max(1, Math.floor(sw * scale));
+    const targetHeight = Math.max(1, Math.floor(sh * scale));
+
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
 
     const context = canvas.getContext("2d");
     if (!context) {
@@ -217,8 +223,8 @@ export default function HomePage() {
       return;
     }
 
-    context.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
-    const imageDataUrl = canvas.toDataURL("image/jpeg", 0.9);
+    context.drawImage(video, sx, sy, sw, sh, 0, 0, targetWidth, targetHeight);
+    const imageDataUrl = canvas.toDataURL("image/jpeg", CAPTURE_JPEG_QUALITY);
 
     const frame: CapturedFrame = {
       id: crypto.randomUUID(),
@@ -238,7 +244,9 @@ export default function HomePage() {
         : prev,
     );
 
-    setStatus(`Stillbild skapad vid ${formatSeconds(video.currentTime)}.`);
+    setStatus(
+      `Stillbild skapad vid ${formatSeconds(video.currentTime)} (${targetWidth}x${targetHeight}).`,
+    );
     setSelectedBox(null);
   }
 
@@ -450,6 +458,10 @@ export default function HomePage() {
       if (message.includes("row-level security policy")) {
         setStatus(
           "Kunde inte spara: RLS-policy blockerar skrivning i Supabase. Kör SQL-fixen för policies i supabase/schema.sql.",
+        );
+      } else if (message.toLowerCase().includes("maximum allowed size")) {
+        setStatus(
+          "Kunde inte spara: filen är större än bucket-gränsen. Höj maxstorlek i bucket eller använd mindre video.",
         );
       } else {
         setStatus(`Kunde inte spara: ${message}`);
