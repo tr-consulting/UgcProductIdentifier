@@ -5,6 +5,7 @@ import type { AnalyzeApiResponse, AzureSettings } from "@/lib/types";
 type RequestBody = {
   imageDataUrl?: string;
   analysisImageDataUrl?: string;
+  lensImageUrl?: string;
   settings?: AzureSettings;
 };
 
@@ -68,6 +69,75 @@ async function fetchSerpTopLinks(query: string) {
   }
 }
 
+type LensCandidate = {
+  title: string;
+  link: string;
+  source: string;
+};
+
+async function fetchLensCandidates(lensImageUrl?: string) {
+  const apiKey = process.env.SERPAPI_KEY;
+  if (!apiKey || !lensImageUrl) {
+    return [] as LensCandidate[];
+  }
+
+  const url = new URL("https://serpapi.com/search.json");
+  url.searchParams.set("engine", "google_lens");
+  url.searchParams.set("url", lensImageUrl);
+  url.searchParams.set("type", "products");
+  url.searchParams.set("hl", "en");
+  url.searchParams.set("country", "us");
+  url.searchParams.set("api_key", apiKey);
+
+  try {
+    const response = await fetch(url.toString(), {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      return [];
+    }
+
+    const data = await response.json();
+    const matches = Array.isArray(data?.visual_matches) ? data.visual_matches : [];
+    const links = matches
+      .map((item: { title?: string; link?: string; source?: string }) => ({
+        title: item?.title || "",
+        link: item?.link || "",
+        source: item?.source || "",
+      }))
+      .filter((item: LensCandidate) => item.link.startsWith("http"))
+      .slice(0, 10);
+
+    return links;
+  } catch {
+    return [];
+  }
+}
+
+function rankLensLinksForProduct(name: string, candidates: LensCandidate[]) {
+  const queryTokens = name
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length > 2);
+
+  const scored = candidates.map((candidate) => {
+    const title = candidate.title.toLowerCase();
+    const score = queryTokens.reduce(
+      (acc, token) => (title.includes(token) ? acc + 1 : acc),
+      0,
+    );
+    return { ...candidate, score };
+  });
+
+  return scored
+    .sort((a, b) => b.score - a.score)
+    .map((item) => item.link)
+    .filter((value, index, arr) => arr.indexOf(value) === index)
+    .slice(0, 3);
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as RequestBody;
@@ -85,6 +155,14 @@ export async function POST(request: Request) {
     const url = `${endpoint.replace(/\/$/, "")}/openai/deployments/${deployment}/chat/completions?api-version=2024-08-01-preview`;
 
     const analysisImage = body.analysisImageDataUrl ?? body.imageDataUrl;
+    const lensCandidates = await fetchLensCandidates(body.lensImageUrl);
+    const lensContext =
+      lensCandidates.length > 0
+        ? `Google Lens candidate matches: ${lensCandidates
+            .slice(0, 6)
+            .map((item: LensCandidate) => `${item.title} -> ${item.link}`)
+            .join(" | ")}`
+        : "Google Lens candidate matches: none";
 
     const azureResponse = await fetch(url, {
       method: "POST",
@@ -104,7 +182,7 @@ export async function POST(request: Request) {
             content: [
               {
                 type: "text",
-                text: "First image is a context-aware crop around the marked product. Second image is the exact tight crop. Identify visible products and output 0-5 items as JSON only.",
+                text: `First image is a context-aware crop around the marked product. Second image is the exact tight crop. ${lensContext}. Use candidate matches to improve product naming. Output 0-5 items as JSON only.`,
               },
               {
                 type: "image_url",
@@ -143,8 +221,13 @@ export async function POST(request: Request) {
     const productsWithLinks = await Promise.all(
       safeProducts.map(async (product) => {
         const query = product.searchQuery || product.name || "";
-        const serpLinks = await fetchSerpTopLinks(query);
-        const links = serpLinks.length ? serpLinks : fallbackLinks(query);
+        const lensLinks = rankLensLinksForProduct(product.name || query, lensCandidates);
+        const serpLinks = lensLinks.length ? [] : await fetchSerpTopLinks(query);
+        const links = lensLinks.length
+          ? lensLinks
+          : serpLinks.length
+            ? serpLinks
+            : fallbackLinks(query);
         return {
           ...product,
           buyLinks: links,

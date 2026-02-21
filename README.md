@@ -5,7 +5,7 @@ Webapp för att:
 - pausa och markera produktområden
 - skapa stillbilder från markeringen
 - analysera bilder via Azure OpenAI
-- hämta topp-3 köplänkar via sekundär provider (SerpAPI, valfritt)
+- hämta topp-3 köplänkar via Google Lens (SerpAPI)
 - generera en HTML-rapport med namn, bild, beskrivning, köplänk, köpt-checkbox och kommentar
 - spara analysen (stillbilder + produktdata + rapport-html) i Supabase
 
@@ -13,7 +13,7 @@ Webapp för att:
 - Next.js (App Router)
 - Supabase (Postgres + Storage)
 - Azure OpenAI via `/api/analyze`
-- SerpAPI (valfri) via `/api/analyze`
+- SerpAPI Google Lens via `/api/analyze`
 - Deploy: GitHub -> Vercel
 
 ## Lokal start
@@ -53,8 +53,7 @@ I appen fyller du i:
 
 Notera: i denna MVP skickas nyckeln från klienten till API-route för snabb start. Nästa steg är att flytta nyckelhantering till server-side per användare med kryptering.
 
-Valfritt för bättre köpresultat:
-- sätt `SERPAPI_KEY` i Vercel (Project Settings -> Environment Variables) för topp-3 länkförslag per produkt.
+Sätt `SERPAPI_KEY` i Vercel (Project Settings -> Environment Variables) för Google Lens-topplänkar per produkt.
 
 ## 3) Vercel deploy (du behöver göra detta)
 

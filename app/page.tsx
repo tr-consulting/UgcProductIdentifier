@@ -360,11 +360,37 @@ export default function HomePage() {
 
     try {
       const updates: Record<string, ProductResult[]> = {};
+      const supabase = hasSupabaseConfig() ? getSupabaseClient() : null;
 
       for (const [index, frame] of framesToAnalyze.entries()) {
         const current = index + 1;
         setAnalyzeProgress({ current, total: framesToAnalyze.length });
         setStatus(`Analyserar bild ${current}/${framesToAnalyze.length}...`);
+
+        let lensImageUrl = "";
+        if (supabase && frame.analysisImageDataUrl && analyzer) {
+          try {
+            const tempPath = `tmp/${analyzer.id}/${frame.id}-${Date.now()}.jpg`;
+            const tempBlob = await (await fetch(frame.analysisImageDataUrl)).blob();
+            const uploadResult = await supabase.storage
+              .from("product-frames")
+              .upload(tempPath, tempBlob, {
+                upsert: true,
+                contentType: "image/jpeg",
+              });
+
+            if (!uploadResult.error) {
+              const signed = await supabase.storage
+                .from("product-frames")
+                .createSignedUrl(tempPath, 60 * 30);
+              if (!signed.error) {
+                lensImageUrl = signed.data.signedUrl;
+              }
+            }
+          } catch {
+            // Continue with Azure-only analysis if temp image upload fails.
+          }
+        }
 
         const response = await fetch("/api/analyze", {
           method: "POST",
@@ -374,6 +400,7 @@ export default function HomePage() {
           body: JSON.stringify({
             imageDataUrl: frame.imageDataUrl,
             analysisImageDataUrl: frame.analysisImageDataUrl,
+            lensImageUrl,
             settings: azureSettings,
           }),
         });
@@ -785,7 +812,7 @@ export default function HomePage() {
                 />
                 {!!product.buyLinks?.length && (
                   <div className="suggestLinks">
-                    {product.buyLinks.slice(0, 3).map((link) => (
+                    {product.buyLinks.slice(0, 3).map((link, index) => (
                       <button
                         key={link}
                         type="button"
@@ -793,7 +820,13 @@ export default function HomePage() {
                         onClick={() => updateProduct(product.id, { buyUrl: link })}
                         title={link}
                       >
-                        Förslag
+                        {(() => {
+                          try {
+                            return `${index + 1}. ${new URL(link).hostname.replace("www.", "")}`;
+                          } catch {
+                            return `${index + 1}. Förslag`;
+                          }
+                        })()}
                       </button>
                     ))}
                   </div>
