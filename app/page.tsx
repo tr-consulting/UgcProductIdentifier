@@ -1,10 +1,16 @@
 "use client";
 
-import { ChangeEvent, MouseEvent, useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import { ChangeEvent, PointerEvent, useMemo, useRef, useState } from "react";
 
 import { getSupabaseClient, hasSupabaseConfig } from "@/lib/supabase";
-import type { AnalyzeApiResponse, Analyzer, AzureSettings, CapturedFrame, ProductResult } from "@/lib/types";
+import type {
+  AnalyzeApiResponse,
+  Analyzer,
+  AzureSettings,
+  CapturedFrame,
+  ProductResult,
+} from "@/lib/types";
 
 const defaultSettings: AzureSettings = {
   endpoint: "",
@@ -58,6 +64,19 @@ function reportHtml(title: string, products: ProductResult[]) {
 </html>`;
 }
 
+function boxToStyle(box: DraftBox | null) {
+  if (!box) {
+    return null;
+  }
+
+  return {
+    left: Math.min(box.startX, box.endX),
+    top: Math.min(box.startY, box.endY),
+    width: Math.abs(box.endX - box.startX),
+    height: Math.abs(box.endY - box.startY),
+  };
+}
+
 export default function HomePage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
@@ -67,24 +86,30 @@ export default function HomePage() {
   const [videoUrl, setVideoUrl] = useState<string>("");
   const [analyzer, setAnalyzer] = useState<Analyzer | null>(null);
   const [draftBox, setDraftBox] = useState<DraftBox | null>(null);
-  const [currentTimestamp, setCurrentTimestamp] = useState(0);
+  const [selectedBox, setSelectedBox] = useState<DraftBox | null>(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [isDrawMode, setIsDrawMode] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [status, setStatus] = useState<string>("");
+  const [currentTimestamp, setCurrentTimestamp] = useState(0);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const allProducts = useMemo(
     () => analyzer?.frames.flatMap((frame) => frame.products) ?? [],
     [analyzer],
   );
 
-  const hasValidBox = useMemo(() => {
-    if (!draftBox || !overlayRef.current) {
+  const visibleBox = isDrawing ? draftBox : selectedBox;
+  const visibleStyle = boxToStyle(visibleBox);
+
+  const hasValidSelection = useMemo(() => {
+    if (!selectedBox) {
       return false;
     }
 
-    const w = Math.abs(draftBox.endX - draftBox.startX);
-    const h = Math.abs(draftBox.endY - draftBox.startY);
-    return w > 5 && h > 5;
-  }, [draftBox]);
+    const style = boxToStyle(selectedBox);
+    return Boolean(style && style.width > 5 && style.height > 5);
+  }, [selectedBox]);
 
   function onUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -99,6 +124,8 @@ export default function HomePage() {
     const nextVideoUrl = URL.createObjectURL(file);
     setVideoFile(file);
     setVideoUrl(nextVideoUrl);
+    setDraftBox(null);
+    setSelectedBox(null);
     setAnalyzer({
       id: crypto.randomUUID(),
       title: file.name.replace(/\.[^.]+$/, "") || "Ny analys",
@@ -107,26 +134,40 @@ export default function HomePage() {
       frames: [],
       createdAt: new Date().toISOString(),
     });
-    setStatus("Video uppladdad. Pausa videon och markera en produkt.");
+    setStatus("Video uppladdad. Klicka 'Markera produkt' och rita en ruta.");
   }
 
-  function normalizedBox() {
-    if (!draftBox || !overlayRef.current) {
+  function normalizedBoxFromSelected() {
+    if (!selectedBox || !overlayRef.current) {
       return null;
     }
 
     const bounds = overlayRef.current.getBoundingClientRect();
-    const left = Math.min(draftBox.startX, draftBox.endX);
-    const top = Math.min(draftBox.startY, draftBox.endY);
-    const width = Math.abs(draftBox.endX - draftBox.startX);
-    const height = Math.abs(draftBox.endY - draftBox.startY);
+    const style = boxToStyle(selectedBox);
+    if (!style) {
+      return null;
+    }
 
     return {
-      x: left / bounds.width,
-      y: top / bounds.height,
-      width: width / bounds.width,
-      height: height / bounds.height,
+      x: style.left / bounds.width,
+      y: style.top / bounds.height,
+      width: style.width / bounds.width,
+      height: style.height / bounds.height,
     };
+  }
+
+  function enableDrawMode() {
+    if (!videoRef.current) {
+      setStatus("Ladda upp en video först.");
+      return;
+    }
+
+    videoRef.current.pause();
+    setIsDrawMode(true);
+    setIsDrawing(false);
+    setDraftBox(null);
+    setSelectedBox(null);
+    setStatus("Markeringsläge aktivt. Dra en ruta över produkten.");
   }
 
   function captureFrame() {
@@ -134,9 +175,9 @@ export default function HomePage() {
       return;
     }
 
-    const box = normalizedBox();
-    if (!box) {
-      setStatus("Rita en markeringsruta först.");
+    const box = normalizedBoxFromSelected();
+    if (!box || !hasValidSelection) {
+      setStatus("Markera ett giltigt område först.");
       return;
     }
 
@@ -179,6 +220,7 @@ export default function HomePage() {
     );
 
     setStatus(`Stillbild skapad vid ${formatSeconds(video.currentTime)}.`);
+    setSelectedBox(null);
   }
 
   async function analyzeFrames() {
@@ -194,6 +236,7 @@ export default function HomePage() {
 
     if (!azureSettings.endpoint || !azureSettings.deployment || !azureSettings.apiKey) {
       setStatus("Fyll i Azure-inställningarna först.");
+      setSettingsOpen(true);
       return;
     }
 
@@ -385,21 +428,29 @@ export default function HomePage() {
     }
   }
 
-  function pointerDown(event: MouseEvent<HTMLDivElement>) {
-    if (!overlayRef.current) {
+  function pointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (!isDrawMode || !overlayRef.current) {
       return;
     }
+
+    event.preventDefault();
+    event.stopPropagation();
 
     const rect = overlayRef.current.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
+
+    setIsDrawing(true);
     setDraftBox({ startX: x, startY: y, endX: x, endY: y });
   }
 
-  function pointerMove(event: MouseEvent<HTMLDivElement>) {
-    if (!draftBox || !overlayRef.current) {
+  function pointerMove(event: PointerEvent<HTMLDivElement>) {
+    if (!isDrawMode || !isDrawing || !overlayRef.current) {
       return;
     }
+
+    event.preventDefault();
+    event.stopPropagation();
 
     const rect = overlayRef.current.getBoundingClientRect();
     const x = event.clientX - rect.left;
@@ -408,151 +459,145 @@ export default function HomePage() {
     setDraftBox((prev) => (prev ? { ...prev, endX: x, endY: y } : prev));
   }
 
-  function pointerUp() {
-    if (hasValidBox) {
-      setStatus("Markering klar. Klicka på 'Skapa stillbild'.");
+  function pointerUp(event: PointerEvent<HTMLDivElement>) {
+    if (!isDrawMode || !isDrawing || !overlayRef.current) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const rect = overlayRef.current.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+
+    const nextBox = draftBox ? { ...draftBox, endX: x, endY: y } : null;
+    const style = boxToStyle(nextBox);
+
+    setDraftBox(nextBox);
+    setSelectedBox(nextBox);
+    setIsDrawing(false);
+    setIsDrawMode(false);
+
+    if (style && style.width > 5 && style.height > 5) {
+      setStatus("Markering klar. Klicka 'Skapa stillbild'.");
+    } else {
+      setStatus("Markeringen var för liten. Prova igen.");
+      setSelectedBox(null);
     }
   }
 
-  const boxStyle = useMemo(() => {
-    if (!draftBox) {
-      return { display: "none" };
-    }
-
-    const left = Math.min(draftBox.startX, draftBox.endX);
-    const top = Math.min(draftBox.startY, draftBox.endY);
-    const width = Math.abs(draftBox.endX - draftBox.startX);
-    const height = Math.abs(draftBox.endY - draftBox.startY);
-
-    return {
-      display: "block",
-      left,
-      top,
-      width,
-      height,
-    };
-  }, [draftBox]);
-
   return (
-    <main className="page">
-      <header className="header">
-        <h1>ProductAnalyzer</h1>
-        <p>Ladda video, pausa, markera produkt, analysera med Azure OpenAI och bygg HTML-rapport.</p>
+    <main className="page appLayout">
+      <header className="topBar">
+        <div>
+          <h1>ProductAnalyzer</h1>
+          <p>Stor videoyta till vänster, smidig arbetspanel till höger.</p>
+        </div>
+        <button type="button" className="menuButton" onClick={() => setSettingsOpen(true)}>
+          ☰ Inställningar
+        </button>
       </header>
 
-      <section className="panel grid-3">
-        <label>
-          Azure Endpoint
-          <input
-            type="text"
-            placeholder="https://your-resource.openai.azure.com"
-            value={azureSettings.endpoint}
-            onChange={(event) =>
-              setAzureSettings((prev) => ({ ...prev, endpoint: event.target.value }))
-            }
-          />
-        </label>
-        <label>
-          Azure Deployment
-          <input
-            type="text"
-            placeholder="gpt-4.1-mini"
-            value={azureSettings.deployment}
-            onChange={(event) =>
-              setAzureSettings((prev) => ({ ...prev, deployment: event.target.value }))
-            }
-          />
-        </label>
-        <label>
-          Azure API Key
-          <input
-            type="password"
-            placeholder="Din Azure OpenAI key"
-            value={azureSettings.apiKey}
-            onChange={(event) =>
-              setAzureSettings((prev) => ({ ...prev, apiKey: event.target.value }))
-            }
-          />
-        </label>
-      </section>
+      <section className="workspace">
+        <section className="panel videoPanel">
+          <div className="videoStage">
+            {videoUrl ? (
+              <>
+                <video
+                  ref={videoRef}
+                  src={videoUrl}
+                  controls={!isDrawMode}
+                  onTimeUpdate={(event) => setCurrentTimestamp(event.currentTarget.currentTime)}
+                />
+                <div
+                  ref={overlayRef}
+                  className={`drawLayer ${isDrawMode ? "active" : ""}`}
+                  onPointerDown={pointerDown}
+                  onPointerMove={pointerMove}
+                  onPointerUp={pointerUp}
+                  onPointerLeave={pointerUp}
+                >
+                  {visibleStyle && (
+                    <div
+                      className="selection"
+                      style={{
+                        left: visibleStyle.left,
+                        top: visibleStyle.top,
+                        width: visibleStyle.width,
+                        height: visibleStyle.height,
+                      }}
+                    />
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="videoPlaceholder">Ingen video vald ännu.</div>
+            )}
+          </div>
+          <div className="videoMeta">
+            <span>Tid: {formatSeconds(currentTimestamp)}</span>
+            <span>{status || "Redo"}</span>
+          </div>
+        </section>
 
-      <section className="panel">
-        <div className="actions">
-          <label className="upload">
-            Välj video
-            <input type="file" accept="video/*" onChange={onUpload} />
-          </label>
-          <button type="button" onClick={captureFrame} disabled={!hasValidBox || !analyzer}>
-            Skapa stillbild
-          </button>
-          <button type="button" onClick={analyzeFrames} disabled={!analyzer || isLoading}>
-            {isLoading ? "Analyserar..." : "Analysera bilder"}
-          </button>
-          <button type="button" onClick={saveToSupabase} disabled={!analyzer || isLoading}>
-            Spara ProductAnalyzer
-          </button>
-          <button type="button" onClick={downloadReport} disabled={!allProducts.length}>
-            Ladda ner HTML-rapport
-          </button>
-        </div>
+        <aside className="panel sidePanel">
+          <div className="actionsColumn">
+            <label className="upload">
+              Välj video
+              <input type="file" accept="video/*" onChange={onUpload} />
+            </label>
+            <button type="button" onClick={enableDrawMode} disabled={!videoUrl}>
+              Markera produkt
+            </button>
+            <button type="button" onClick={captureFrame} disabled={!hasValidSelection || !analyzer}>
+              Skapa stillbild
+            </button>
+            <button type="button" onClick={analyzeFrames} disabled={!analyzer || isLoading}>
+              {isLoading ? "Analyserar..." : "Analysera bilder"}
+            </button>
+            <button type="button" onClick={saveToSupabase} disabled={!analyzer || isLoading}>
+              Spara ProductAnalyzer
+            </button>
+            <button type="button" onClick={downloadReport} disabled={!allProducts.length}>
+              Ladda ner HTML
+            </button>
+          </div>
 
-        <p className="status">{status}</p>
-
-        <div className="videoWrap">
-          {videoUrl ? (
-            <div
-              className="overlay"
-              ref={overlayRef}
-              onMouseDown={pointerDown}
-              onMouseMove={pointerMove}
-              onMouseUp={pointerUp}
-            >
-              <video
-                ref={videoRef}
-                src={videoUrl}
-                controls
-                onTimeUpdate={(event) => setCurrentTimestamp(event.currentTarget.currentTime)}
-              />
-              <div className="selection" style={boxStyle} />
+          <div className="thumbSection">
+            <h3>Stillbilder ({analyzer?.frames.length ?? 0})</h3>
+            <div className="thumbList">
+              {(analyzer?.frames ?? []).map((frame) => (
+                <article key={frame.id} className="thumbCard">
+                  <Image
+                    src={frame.imageDataUrl}
+                    alt={`Frame ${frame.id}`}
+                    width={92}
+                    height={68}
+                    className="thumbImage"
+                    unoptimized
+                  />
+                  <div>
+                    <p>{formatSeconds(frame.timestamp)}</p>
+                    <p>{frame.analyzed ? `${frame.products.length} produkter` : "Ej analyserad"}</p>
+                  </div>
+                </article>
+              ))}
             </div>
-          ) : (
-            <p>Ingen video vald ännu.</p>
-          )}
-        </div>
-
-        <p className="meta">Aktuell tid: {formatSeconds(currentTimestamp)}</p>
-      </section>
-
-      <section className="panel">
-        <h2>Stillbilder ({analyzer?.frames.length ?? 0})</h2>
-        <div className="frames">
-          {(analyzer?.frames ?? []).map((frame) => (
-            <article key={frame.id} className="frameCard">
-              <Image
-                src={frame.imageDataUrl}
-                alt={`Frame ${frame.id}`}
-                width={320}
-                height={180}
-                className="previewImage"
-                unoptimized
-              />
-              <p>{formatSeconds(frame.timestamp)}</p>
-              <p>{frame.analyzed ? `${frame.products.length} produkter` : "Ej analyserad"}</p>
-            </article>
-          ))}
-        </div>
+          </div>
+        </aside>
       </section>
 
       <section className="panel">
         <h2>Rapport ({allProducts.length} produkter)</h2>
-        <div className="products">
+        <div className="productsCompact">
           {allProducts.map((product) => (
             <article key={product.id} className="productCard">
               <Image
                 src={product.imageDataUrl}
                 alt={product.name}
-                width={320}
-                height={180}
+                width={220}
+                height={150}
                 className="previewImage"
                 unoptimized
               />
@@ -602,6 +647,58 @@ export default function HomePage() {
           ))}
         </div>
       </section>
+
+      {settingsOpen && (
+        <>
+          <button
+            type="button"
+            className="settingsBackdrop"
+            onClick={() => setSettingsOpen(false)}
+            aria-label="Stäng inställningar"
+          />
+          <aside className="settingsDrawer panel">
+            <div className="settingsHeader">
+              <h2>Applikationsinställningar</h2>
+              <button type="button" onClick={() => setSettingsOpen(false)}>
+                Stäng
+              </button>
+            </div>
+            <label>
+              Azure Endpoint
+              <input
+                type="text"
+                placeholder="https://your-resource.openai.azure.com"
+                value={azureSettings.endpoint}
+                onChange={(event) =>
+                  setAzureSettings((prev) => ({ ...prev, endpoint: event.target.value }))
+                }
+              />
+            </label>
+            <label>
+              Azure Deployment
+              <input
+                type="text"
+                placeholder="gpt-4.1-mini"
+                value={azureSettings.deployment}
+                onChange={(event) =>
+                  setAzureSettings((prev) => ({ ...prev, deployment: event.target.value }))
+                }
+              />
+            </label>
+            <label>
+              Azure API Key
+              <input
+                type="password"
+                placeholder="Din Azure OpenAI key"
+                value={azureSettings.apiKey}
+                onChange={(event) =>
+                  setAzureSettings((prev) => ({ ...prev, apiKey: event.target.value }))
+                }
+              />
+            </label>
+          </aside>
+        </>
+      )}
     </main>
   );
 }
