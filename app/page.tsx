@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { ChangeEvent, PointerEvent, useMemo, useRef, useState } from "react";
+import { ChangeEvent, PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { getSupabaseClient, hasSupabaseConfig } from "@/lib/supabase";
 import type {
@@ -17,6 +17,7 @@ const defaultSettings: AzureSettings = {
   deployment: "",
   apiKey: "",
 };
+const AZURE_SETTINGS_STORAGE_KEY = "product-analyzer.azure-settings";
 
 type DraftBox = {
   startX: number;
@@ -102,14 +103,27 @@ export default function HomePage() {
   const visibleBox = isDrawing ? draftBox : selectedBox;
   const visibleStyle = boxToStyle(visibleBox);
 
-  const hasValidSelection = useMemo(() => {
-    if (!selectedBox) {
-      return false;
-    }
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(AZURE_SETTINGS_STORAGE_KEY);
+      if (!saved) {
+        return;
+      }
 
-    const style = boxToStyle(selectedBox);
-    return Boolean(style && style.width > 5 && style.height > 5);
-  }, [selectedBox]);
+      const parsed = JSON.parse(saved) as Partial<AzureSettings>;
+      setAzureSettings({
+        endpoint: parsed.endpoint ?? "",
+        deployment: parsed.deployment ?? "",
+        apiKey: parsed.apiKey ?? "",
+      });
+    } catch {
+      // Ignore malformed local storage data.
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(AZURE_SETTINGS_STORAGE_KEY, JSON.stringify(azureSettings));
+  }, [azureSettings]);
 
   function onUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -137,13 +151,13 @@ export default function HomePage() {
     setStatus("Video uppladdad. Klicka 'Markera produkt' och rita en ruta.");
   }
 
-  function normalizedBoxFromSelected() {
-    if (!selectedBox || !overlayRef.current) {
+  function toNormalizedBox(boxDraft: DraftBox) {
+    if (!overlayRef.current) {
       return null;
     }
 
     const bounds = overlayRef.current.getBoundingClientRect();
-    const style = boxToStyle(selectedBox);
+    const style = boxToStyle(boxDraft);
     if (!style) {
       return null;
     }
@@ -167,16 +181,17 @@ export default function HomePage() {
     setIsDrawing(false);
     setDraftBox(null);
     setSelectedBox(null);
-    setStatus("Markeringsläge aktivt. Dra en ruta över produkten.");
+    setStatus("Markeringsläge aktivt. Dra en ruta över produkten så sparas stillbilden automatiskt.");
   }
 
-  function captureFrame() {
+  function captureFrameFromBox(boxDraft: DraftBox) {
     if (!videoRef.current || !analyzer) {
       return;
     }
 
-    const box = normalizedBoxFromSelected();
-    if (!box || !hasValidSelection) {
+    const box = toNormalizedBox(boxDraft);
+    const style = boxToStyle(boxDraft);
+    if (!box || !style || style.width <= 5 || style.height <= 5) {
       setStatus("Markera ett giltigt område först.");
       return;
     }
@@ -479,8 +494,8 @@ export default function HomePage() {
     setIsDrawing(false);
     setIsDrawMode(false);
 
-    if (style && style.width > 5 && style.height > 5) {
-      setStatus("Markering klar. Klicka 'Skapa stillbild'.");
+    if (nextBox && style && style.width > 5 && style.height > 5) {
+      captureFrameFromBox(nextBox);
     } else {
       setStatus("Markeringen var för liten. Prova igen.");
       setSelectedBox(null);
@@ -549,9 +564,6 @@ export default function HomePage() {
             </label>
             <button type="button" onClick={enableDrawMode} disabled={!videoUrl}>
               Markera produkt
-            </button>
-            <button type="button" onClick={captureFrame} disabled={!hasValidSelection || !analyzer}>
-              Skapa stillbild
             </button>
             <button type="button" onClick={analyzeFrames} disabled={!analyzer || isLoading}>
               {isLoading ? "Analyserar..." : "Analysera bilder"}
