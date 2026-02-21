@@ -16,6 +16,20 @@ function cleanJsonText(value: string) {
   return trimmed;
 }
 
+function fallbackLinks(query: string) {
+  const q = query.trim();
+  if (!q) {
+    return [];
+  }
+
+  const encoded = encodeURIComponent(q);
+  return [
+    `https://www.google.com/search?tbm=shop&q=${encoded}`,
+    `https://www.amazon.com/s?k=${encoded}`,
+    `https://www.ebay.com/sch/i.html?_nkw=${encoded}`,
+  ];
+}
+
 async function fetchSerpTopLinks(query: string) {
   const apiKey = process.env.SERPAPI_KEY;
   if (!apiKey || !query.trim()) {
@@ -128,7 +142,9 @@ export async function POST(request: Request) {
     const safeProducts = Array.isArray(parsed.products) ? parsed.products : [];
     const productsWithLinks = await Promise.all(
       safeProducts.map(async (product) => {
-        const links = await fetchSerpTopLinks(product.searchQuery || product.name || "");
+        const query = product.searchQuery || product.name || "";
+        const serpLinks = await fetchSerpTopLinks(query);
+        const links = serpLinks.length ? serpLinks : fallbackLinks(query);
         return {
           ...product,
           buyLinks: links,
