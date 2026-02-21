@@ -1,36 +1,72 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ProductAnalyzer MVP
 
-## Getting Started
+Webapp för att:
+- ladda upp en video (t.ex. skärminspelning)
+- pausa och markera produktområden
+- skapa stillbilder från markeringen
+- analysera bilder via Azure OpenAI
+- generera en HTML-rapport med namn, bild, beskrivning, köplänk, köpt-checkbox och kommentar
+- spara hela analysen (video + frames + produktdata) i Supabase
 
-First, run the development server:
+## Stack
+- Next.js (App Router)
+- Supabase (Postgres + Storage)
+- Azure OpenAI via `/api/analyze`
+- Deploy: GitHub -> Vercel
 
+## Lokal start
 ```bash
+npm install
+cp .env.example .env.local
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 1) Supabase setup (du behöver göra detta)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. Skapa ett nytt Supabase-projekt.
+2. Gå till SQL Editor och kör innehållet i `/supabase/schema.sql`.
+3. Skapa två Storage buckets:
+- `product-videos`
+- `product-frames`
+4. Hämta:
+- Project URL
+- anon public key
+5. Lägg in i `.env.local`:
+```env
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 2) Azure OpenAI setup (du behöver göra detta)
 
-## Learn More
+I appen fyller du i:
+- Endpoint
+- Deployment name
+- API key
 
-To learn more about Next.js, take a look at the following resources:
+Notera: i denna MVP skickas nyckeln från klienten till API-route för snabb start. Nästa steg är att flytta nyckelhantering till server-side per användare med kryptering.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 3) Vercel deploy (du behöver göra detta)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+1. Pusha repo till GitHub.
+2. Importera GitHub-repot i Vercel.
+3. Sätt environment variables i Vercel:
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+4. Deploy.
 
-## Deploy on Vercel
+## Flöde i appen
+1. Välj video.
+2. Spela/pausa videon.
+3. Rita markeringsruta över produkten.
+4. Klicka `Skapa stillbild`.
+5. Klicka `Analysera bilder`.
+6. Justera rapportfält vid behov.
+7. Klicka `Spara ProductAnalyzer`.
+8. Klicka `Ladda ner HTML-rapport`.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Nästa förbättringar
+- Auth + RLS policies i Supabase
+- Krypterad lagring av Azure-inställningar per användare
+- Bakgrundsjobb för batch-analys
+- Thumbnail-generering på analyzer-nivå
